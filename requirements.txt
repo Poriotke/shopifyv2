@@ -1,0 +1,8 @@
+telethon
+motor
+dnspython
+aiohttp
+requests
+colorama
+cryptography
+
