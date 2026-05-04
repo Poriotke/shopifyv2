@@ -21,7 +21,7 @@ threading.Thread(target=run_health_check, daemon=True).start()
 # Integrated your specific MongoDB URI (Brackets removed from password)
 MONGO_URI = "mongodb+srv://riot_adminn:A2723Dscyq3gYhFi@cluster0.agit2bo.mongodb.net/?appName=Cluster0"
 ADMIN_ID = 5541778617
-BOT_TOKEN = '8497898449:AAGk-FcVpSMzo92JwCsDWPJLI7Vdd3jeuTY'
+BOT_TOKEN = '8284884126:AAFYSgVRWYh9ClQ-p6okChEyGyLnQo_OQaE'
 API_ID = 38807471
 API_HASH = '9bbfb9efe1a47596cf7f1b20017f5dc6'
 
